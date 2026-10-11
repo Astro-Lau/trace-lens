@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trace Lens">
+<meta name="theme-color" content="#121110">
+<title>Trace Lens</title>
+<style>
+:root{
+  --ink:#121110;
+  --tray:rgba(18,17,16,.82);
+  --chalk:#f2efe8;
+  --graphite:#8f8a80;
+  --conte:#e2b866;
+  --line:rgba(242,239,232,.14);
+  --ui:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:var(--ink);color:var(--chalk);font:15px/1.35 var(--ui);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#stage{position:fixed;inset:0;touch-action:none;overflow:hidden}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--ink)}
+#overlay{position:absolute;left:50%;top:50%;transform-origin:center center;pointer-events:none;will-change:transform,opacity;max-width:none}
+#grid{position:absolute;inset:0;pointer-events:none;opacity:.55;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:calc(100% / 3) calc(100% / 3)}
+#nocam{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--graphite);pointer-events:none}
+#nocam p{max-width:30ch;margin:0}
+#nocam strong{color:var(--chalk);display:block;margin-bottom:6px;font-size:17px}
+.top{position:fixed;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 0;display:flex;justify-content:space-between;align-items:center;pointer-events:none}
+.top > *{pointer-events:auto}
+.pill{background:var(--tray);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--graphite);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.pill.on{color:var(--ink);background:var(--conte);border-color:var(--conte)}
+.tray{position:fixed;left:0;right:0;bottom:0;padding:12px 16px calc(env(safe-area-inset-bottom,0px) + 12px);background:var(--tray);border-top:1px solid var(--line);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);display:flex;flex-direction:column;gap:12px}
+.row{display:flex;gap:8px;align-items:center}
+.row.buttons{justify-content:space-between}
+label.slider{display:flex;align-items:center;gap:12px;flex:1;min-width:0;font-size:12px;color:var(--graphite);letter-spacing:.06em;text-transform:uppercase}
+label.slider output{font-variant-numeric:tabular-nums;color:var(--chalk);width:3.2em;text-align:right;text-transform:none;letter-spacing:0}
+input[type=range]{flex:1;min-width:0;accent-color:var(--conte);height:28px}
+.btn{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;background:none;border:0;color:var(--chalk);font:500 11px/1 var(--ui);padding:6px 0;border-radius:12px;cursor:pointer}
+.btn svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.btn[aria-pressed=true]{color:var(--conte)}
+.btn:focus-visible,.pill:focus-visible{outline:2px solid var(--conte);outline-offset:2px}
+.btn:active{background:var(--line)}
+#file{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+#showui{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);width:48px;height:48px;border-radius:50%;background:var(--tray);border:1px solid var(--line);color:var(--chalk);display:grid;place-items:center}
+#showui svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7}
+#toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 56px);transform:translateX(-50%);background:var(--tray);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){#toast{transition:none}}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="cam" playsinline muted autoplay></video>
+  <div id="nocam" hidden><p><strong>Camera not available</strong><span id="nocamwhy">Allow camera access, then reload.</span></p></div>
+  <img id="overlay" alt="Image to trace">
+  <div id="grid" hidden></div>
+</div>
+
+<div class="top" id="top">
+  <span class="pill" id="lockpill">Unlocked · drag &amp; pinch</span>
+</div>
+
+<div class="tray" id="tray">
+  <div class="row">
+    <label class="slider" for="opacity">Opacity
+      <input id="opacity" type="range" min="5" max="100" value="50">
+      <output id="opout">50%</output>
+    </label>
+  </div>
+  <div class="row buttons">
+    <button class="btn" id="pick" type="button">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>Image</button>
+    <button class="btn" id="lock" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path id="shackle" d="M8 11V8a4 4 0 0 1 7.5-2"/></svg>Lock</button>
+    <button class="btn" id="flip" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 7L3 12l5 5V7z"/><path d="M16 7l5 5-5 5V7z"/></svg>Flip</button>
+    <button class="btn" id="gridbtn" type="button" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>Grid</button>
+    <button class="btn" id="reset" type="button">
+      <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/></svg>Reset</button>
+    <button class="btn" id="hide" type="button">
+      <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><path d="M4 4l16 16"/></svg>Hide</button>
+  </div>
+  <input id="file" type="file" accept="image/*">
+</div>
+
+<button id="showui" type="button" aria-label="Show controls" hidden>
+  <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+</button>
+<div id="toast" role="status"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const video = $('cam'), img = $('overlay'), stage = $('stage');
+
+  async function startCamera(){
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+      video.srcObject = stream;
+      await video.play().catch(()=>{});
+    }catch(err){
+      $('nocam').hidden = false;
+      $('nocamwhy').textContent = !window.isSecureContext
+        ? 'This page must be opened from an https:// address for the camera to work.'
+        : 'Allow camera access for this site in Safari settings, then reload.';
+    }
+  }
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) startCamera();
+  else { $('nocam').hidden = false; $('nocamwhy').textContent = 'This browser does not support live camera access.'; }
+
+  let wake = null;
+  async function keepAwake(){ try{ if('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); }catch(e){} }
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') keepAwake(); });
+  keepAwake();
+
+  const st = {x:0,y:0,s:1,r:0,flip:false,locked:false};
+  function render(){
+    img.style.transform = `translate(-50%,-50%) translate(${st.x}px,${st.y}px) rotate(${st.r}rad) scale(${st.s*(st.flip?-1:1)},${st.s})`;
+  }
+  function fit(){
+    if(!img.naturalWidth) return;
+    const w = Math.min(stage.clientWidth, stage.clientHeight) * 0.8;
+    img.style.width = w + 'px';
+    img.style.height = 'auto';
+    Object.assign(st,{x:0,y:0,s:1,r:0});
+    render();
+  }
+  img.addEventListener('load', fit);
+
+  const sample = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><circle cx="200" cy="200" r="150"/><path d="M200 50v300M50 200h300"/><path d="M120 250c30-60 130-60 160 0"/><circle cx="150" cy="150" r="18"/><circle cx="250" cy="150" r="18"/><text x="200" y="385" font-family="Helvetica" font-size="22" fill="#111" stroke="none" text-anchor="middle">Sample: tap Image to pick yours</text></svg>`;
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sample);
+
+  $('pick').onclick = () => $('file').click();
+  $('file').onchange = e => {
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    const url = URL.createObjectURL(f);
+    img.onload = () => { fit(); URL.revokeObjectURL(url); img.onload = null; };
+    img.src = url;
+    e.target.value = '';
+  };
+
+  const op = $('opacity');
+  const setOp = () => { img.style.opacity = op.value/100; $('opout').textContent = op.value + '%'; };
+  op.oninput = setOp; setOp();
+
+  const pts = new Map();
+  let start = null;
+  function snapshot(){
+    const p = [...pts.values()];
+    if(p.length === 1) return {mode:1, px:p[0].x, py:p[0].y, x:st.x, y:st.y};
+    const [a,b] = p;
+    return {mode:2, cx:(a.x+b.x)/2, cy:(a.y+b.y)/2, d:Math.hypot(b.x-a.x,b.y-a.y)||1,
+      ang:Math.atan2(b.y-a.y,b.x-a.x), x:st.x, y:st.y, s:st.s, r:st.r};
+  }
+  stage.addEventListener('pointerdown', e => {
+    if(st.locked) return;
+    stage.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pts.size <= 2) start = snapshot();
+  });
+  stage.addEventListener('pointermove', e => {
+    if(st.locked || !pts.has(e.pointerId)) return;
+    pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const p = [...pts.values()];
+    if(start.mode === 1 && p.length === 1){
+      st.x = start.x + p[0].x - start.px;
+      st.y = start.y + p[0].y - start.py;
+    } else if(start.mode === 2 && p.length >= 2){
+      const [a,b] = p;
+      const cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
+      st.s = Math.max(0.05, Math.min(20, start.s * Math.hypot(b.x-a.x,b.y-a.y)/start.d));
+      st.r = start.r + Math.atan2(b.y-a.y,b.x-a.x) - start.ang;
+      st.x = start.x + cx - start.cx;
+      st.y = start.y + cy - start.cy;
+    }
+    render();
+  });
+  const up = e => { pts.delete(e.pointerId); if(pts.size) start = snapshot(); };
+  stage.addEventListener('pointerup', up);
+  stage.addEventListener('pointercancel', up);
+  document.addEventListener('gesturestart', e => e.preventDefault());
+
+  const toast = msg => { const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast.t); toast.t=setTimeout(()=>t.classList.remove('show'),1400); };
+  $('lock').onclick = () => {
+    st.locked = !st.locked; pts.clear();
+    $('lock').setAttribute('aria-pressed', st.locked);
+    $('shackle').setAttribute('d', st.locked ? 'M8 11V8a4 4 0 0 1 8 0v3' : 'M8 11V8a4 4 0 0 1 7.5-2');
+    const pill = $('lockpill');
+    pill.textContent = st.locked ? 'Locked' : 'Unlocked · drag & pinch';
+    pill.classList.toggle('on', st.locked);
+    toast(st.locked ? 'Image locked in place' : 'Image unlocked');
+  };
+  $('flip').onclick = () => { st.flip = !st.flip; $('flip').setAttribute('aria-pressed', st.flip); render(); };
+  $('gridbtn').onclick = () => { const g=$('grid'); g.hidden=!g.hidden; $('gridbtn').setAttribute('aria-pressed', !g.hidden); };
+  $('reset').onclick = () => { if(st.locked){ toast('Unlock to reset'); return; } fit(); toast('Size and position reset'); };
+  $('hide').onclick = () => { $('tray').hidden = true; $('top').hidden = true; $('showui').hidden = false; };
+  $('showui').onclick = () => { $('tray').hidden = false; $('top').hidden = false; $('showui').hidden = true; };
+
+  render();
+})();
+</script>
+</body>
+</html>
